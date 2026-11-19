@@ -1,0 +1,27 @@
+{
+  "name": "bizassist-ai",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local server.js",
+    "dev": "node --env-file-if-exists=.env --env-file-if-exists=.env.local server.js",
+    "test": "node --test tests/*.test.js",
+    "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/db-migrate.js",
+    "db:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/db-check.js",
+    "db:import-sqlite": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/import-sqlite.js",
+    "admin:promote": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/promote-admin.js",
+    "supabase:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.local scripts/supabase-check.js"
+  },
+  "dependencies": {
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.119.1",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16"
+  }
+}

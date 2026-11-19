@@ -1,0 +1,14 @@
+data/
+.env
+.env.local
+node_modules/
+.env.*
+!.env.example
+!.env.local.example
+!.env.supabase.example
+*.log
+*.db
+*.db-shm
+*.db-wal
+coverage/
+.DS_Store
