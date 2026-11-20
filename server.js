@@ -47,7 +47,7 @@ export async function createApp(dbPath = process.env.DATABASE_PATH || resolve(ro
   const publicUser=u=>({id:u.id,name:u.name,email:u.email,role:u.role});
   const ticketQuery=`SELECT t.*,c.name customer_name,c.email customer_email,a.name assignee_name FROM tickets t JOIN users c ON c.id=t.customer_id LEFT JOIN users a ON a.id=t.assignee_id`;
   const event=async(id,user,description)=>(await db.prepare('INSERT INTO events(ticket_id,actor,description) VALUES(?,?,?)').run(id,user.name,description));
-  const server=http.createServer(async(req,res)=>{
+  const handler=async(req,res)=>{
     res.setHeader('X-Content-Type-Options','nosniff'); res.setHeader('X-Frame-Options','DENY'); res.setHeader('Referrer-Policy','same-origin');
     res.setHeader('Content-Security-Policy',"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
     const send=(code,data)=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
@@ -58,18 +58,30 @@ export async function createApp(dbPath = process.env.DATABASE_PATH || resolve(ro
       if(!['GET','HEAD'].includes(method)) {
         if(req.headers.origin) {
           let origin;try{origin=new URL(req.headers.origin);}catch{return send(403,{error:'Origin rejected'});}
-          if(!['http:','https:'].includes(origin.protocol)||origin.host!==req.headers.host)return send(403,{error:'Origin rejected'});
+          const host=req.headers['x-forwarded-host']||req.headers.host;
+          if(!['http:','https:'].includes(origin.protocol)||(origin.host!==host&&origin.host!==req.headers.host))return send(403,{error:'Origin rejected'});
         }
         if(req.headers['content-type']?.split(';')[0] !== 'application/json') return send(415,{error:'JSON content type required'});
       }
-      let body={}; if(!['GET','HEAD'].includes(method)) {let raw=''; for await (const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>64000)return send(413,{error:'Request too large'});}try{body=JSON.parse(raw||'{}');if(!body || typeof body !== 'object' || Array.isArray(body))throw Error();}catch{return send(400,{error:'Invalid JSON'});} }
+      let body={};
+      if(!['GET','HEAD'].includes(method)) {
+        if(req.body && typeof req.body === 'object') {
+          body=req.body;
+        } else if(typeof req.body === 'string') {
+          try{body=JSON.parse(req.body||'{}');}catch{return send(400,{error:'Invalid JSON'});}
+        } else {
+          let raw=''; for await (const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>64000)return send(413,{error:'Request too large'});}
+          try{body=JSON.parse(raw||'{}');if(!body || typeof body !== 'object' || Array.isArray(body))throw Error();}catch{return send(400,{error:'Invalid JSON'});}
+        }
+      }
       const validText=(v,max=10000)=>typeof v==='string' && v.trim().length>0 && v.length<=max;
       const validId=v=>typeof v==='number' && Number.isSafeInteger(v) && v>0;
       const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('session='))?.slice(8);
       const user=token ? (await db.prepare('SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(digest(token),Date.now())) : null;
       if(path==='/api/login' || path==='/api/register') {
         if(method!=='POST')return send(405,{error:'Method not allowed'});
-        if(limited(`auth:${req.socket.remoteAddress}`,20))return send(429,{error:'Too many attempts. Try again in a minute.'});
+        const clientIp=(req.headers['x-forwarded-for']?.split(',')[0]||req.socket?.remoteAddress||'127.0.0.1').trim();
+        if(limited(`auth:${clientIp}`,20))return send(429,{error:'Too many attempts. Try again in a minute.'});
         if(!validText(body.email,254)||!validText(body.password,128))return send(400,{error:'Email and password required'});
         const email=body.email.trim().toLowerCase(); let account;
         if(path==='/api/register') {
@@ -80,7 +92,8 @@ export async function createApp(dbPath = process.env.DATABASE_PATH || resolve(ro
         account=(await db.prepare('SELECT * FROM users WHERE email=?').get(email));
         if(!account || !verify(body.password,account.password))return send(401,{error:'Incorrect email or password'});
         const session=randomBytes(32).toString('hex'); (await db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now())); (await db.prepare('INSERT INTO sessions VALUES(?,?,?)').run(digest(session),account.id,Date.now()+86400000));
-        res.setHeader('Set-Cookie',`session=${session}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400${process.env.COOKIE_SECURE==='true'?'; Secure':''}`);return send(200,{user:publicUser(account)});
+        const isSecure=process.env.COOKIE_SECURE==='true'||req.headers['x-forwarded-proto']==='https';
+        res.setHeader('Set-Cookie',`session=${session}; HttpOnly; SameSite=Lax; Path=/; Max-Age=86400${isSecure?'; Secure':''}`);return send(200,{user:publicUser(account)});
       }
       if(path==='/api/config' && method==='GET')return send(200,{demo,database:db.provider,provider:process.env.AI_PROVIDER==='openai-compatible' && process.env.AI_API_KEY ? 'AI provider with offline fallback':'Offline assistant'});
       if(!user)return send(401,{error:'Please sign in'});
@@ -144,8 +157,9 @@ export async function createApp(dbPath = process.env.DATABASE_PATH || resolve(ro
       console.error('Request failed:',err.code||'internal error');
       if(!res.headersSent)send(err.code==='23505'?409:unavailable?503:500,{error:err.code==='23505'?'A record with these details already exists.':unavailable?'The database is temporarily unavailable. Please try again.':'Something went wrong. Please try again.'});else res.end();
     }
-  });
-  return {server,db};
+  };
+  const server=http.createServer(handler);
+  return {server,db,handler};
   } catch(error) {await db.close();throw error;}
 }
 export async function startServer(server, {port=3000,host='127.0.0.1',fallback=true}={}) {
