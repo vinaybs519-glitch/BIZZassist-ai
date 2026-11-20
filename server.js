@@ -1,7 +1,7 @@
 import http from 'node:http';
 import {openDatabase,databaseMode} from './database.js';
 import {randomBytes, scryptSync, timingSafeEqual, createHash} from 'node:crypto';
-import {readFileSync} from 'node:fs';
+import {readFileSync, existsSync} from 'node:fs';
 import {dirname, resolve, extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {analyze, chat, fallback} from './ai.js';
@@ -54,7 +54,13 @@ export async function createApp(dbPath = process.env.DATABASE_PATH || resolve(ro
     try {
       const url=new URL(req.url,'http://localhost'); const path=url.pathname; const method=req.method;
       if(path==='/api/health' && method==='GET'){try{await db.health();return send(200,{status:'ok',database:db.provider});}catch{return send(503,{status:'unavailable',database:db.provider});}}
-      if(!path.startsWith('/api/')) { const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css'}; if(!files[path]) return send(404,{error:'Page not found'});res.setHeader('Content-Type', {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css'}[extname(files[path])]);return res.end(readFileSync(resolve(root,'public',files[path]))); }
+      if(!path.startsWith('/api/')) {
+        const files={'/':'index.html','/app.js':'app.js','/style.css':'style.css'};
+        if(!files[path]) return send(404,{error:'Page not found'});
+        res.setHeader('Content-Type', {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css'}[extname(files[path])]);
+        const filePath = existsSync(resolve(root,'public',files[path])) ? resolve(root,'public',files[path]) : resolve(root,files[path]);
+        return res.end(readFileSync(filePath));
+      }
       if(!['GET','HEAD'].includes(method)) {
         if(req.headers.origin) {
           let origin;try{origin=new URL(req.headers.origin);}catch{return send(403,{error:'Origin rejected'});}

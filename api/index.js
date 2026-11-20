@@ -21,11 +21,11 @@ export default async function handler(req, res) {
     const app = await getApp();
     return app.handler(req, res);
   } catch (err) {
-    console.error('Serverless function startup error:', err);
+    console.error('Serverless function startup error:', err?.message || err);
     if (!res.headersSent) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.writeHead(503, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
-        error: 'Failed to connect to the database. Verify SUPABASE_DB_URL and DATABASE_PROVIDER in your Vercel Environment Variables.'
+        error: err?.message || 'Database connection error. Verify SUPABASE_DB_URL in your Vercel Environment Variables.'
       }));
     } else {
       res.end();

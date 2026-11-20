@@ -1,20 +1,20 @@
-import {DatabaseSync} from 'node:sqlite';
 import {mkdirSync,readFileSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 
 export function databaseMode(env=process.env){
-  const mode=env.DATABASE_PROVIDER||'sqlite';
+  const mode=env.DATABASE_PROVIDER||(process.env.VERCEL ? 'supabase' : 'sqlite');
   if(!['sqlite','supabase'].includes(mode))throw Error('DATABASE_PROVIDER must be sqlite or supabase');
   return mode;
 }
 
 export function postgresConfig(env=process.env){
-  if(!env.SUPABASE_DB_URL)throw Error('Set SUPABASE_DB_URL in .env to your Supabase PostgreSQL connection string.');
+  if(!env.SUPABASE_DB_URL)throw Error('SUPABASE_DB_URL is missing. Please add SUPABASE_DB_URL to your Vercel Environment Variables.');
   let url;try{url=new URL(env.SUPABASE_DB_URL);}catch{throw Error('SUPABASE_DB_URL must be a PostgreSQL connection string.');}
   if(!['postgres:','postgresql:'].includes(url.protocol)||!url.hostname||!url.username||!url.password)throw Error('SUPABASE_DB_URL must include a PostgreSQL host, username and password.');
   // URL SSL flags override pg's SSL object; enforce verification in one place.
   for(const key of ['ssl','sslmode','sslcert','sslkey','sslrootcert'])url.searchParams.delete(key);
-  return {connectionString:url.toString(),ssl:{rejectUnauthorized:true,...(env.SUPABASE_SSL_CA_PATH?{ca:readFileSync(resolve(env.SUPABASE_SSL_CA_PATH),'utf8')}:{})},max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000,statement_timeout:15000,application_name:'bizassist',options:'-c search_path=public,bizassist'};
+  const rejectUnauthorized = env.SUPABASE_SSL_REJECT_UNAUTHORIZED === 'false' ? false : true;
+  return {connectionString:url.toString(),ssl:{rejectUnauthorized,...(env.SUPABASE_SSL_CA_PATH?{ca:readFileSync(resolve(env.SUPABASE_SSL_CA_PATH),'utf8')}:{})},max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000,statement_timeout:15000,application_name:'bizassist',options:'-c search_path=public,bizassist'};
 }
 
 // Only static application SQL reaches this adapter; values remain bound parameters.
@@ -49,6 +49,7 @@ export async function openDatabase(path,options={}){
   const provider=options.provider||databaseMode();
   if(provider==='sqlite'){
     if(path!==':memory:')mkdirSync(dirname(resolve(path)),{recursive:true});
+    const {DatabaseSync} = await import('node:sqlite');
     const db=new DatabaseSync(path);db.provider='sqlite';db.health=()=>{db.prepare('SELECT 1').get();return true;};return db;
   }
   if(provider!=='supabase')throw Error('Unsupported database provider');
