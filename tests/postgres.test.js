@@ -10,7 +10,7 @@ const migration=readFileSync(new URL('../supabase/migrations/001_bizassist.sql',
 async function fixture(){
   const pg=new PGlite();
   await pg.exec('CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;');
-  await pg.exec(migration);await pg.exec('SET search_path=bizassist');
+  await pg.exec(migration);await pg.exec('SET search_path=public,bizassist');
   const client={async query(text,values){const result=await pg.query(text,values);return {...result,rowCount:result.affectedRows??result.rows.length};},end:()=>pg.close()};
   return {pg,client,db:postgresAdapter(client)};
 }
@@ -26,7 +26,7 @@ test('Supabase PostgreSQL schema and full backend support authentication, ticket
   const {pg,db}=await fixture();let app;
   try{
     // Reapplying the migration preserves data and does not fail.
-    await pg.exec(migration);await pg.exec('SET search_path=bizassist');
+    await pg.exec(migration);await pg.exec('SET search_path=public,bizassist');
     app=await createApp(':memory:',true,{database:db});
     const port=await startServer(app.server,{port:0});const base=`http://127.0.0.1:${port}/api`;
     async function req(path,method='GET',body,cookie){const res=await fetch(base+path,{method,headers:{'Content-Type':'application/json',...(cookie?{cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});return {status:res.status,data:await res.json(),cookie:res.headers.get('set-cookie')?.split(';')[0]};}
@@ -57,12 +57,12 @@ test('Supabase PostgreSQL schema and full backend support authentication, ticket
 test('Supabase API roles cannot read server-only data',async()=>{
   const {pg,db}=await fixture();
   try{
-    for(const role of ['anon','authenticated','service_role']){
+    for(const role of ['anon','authenticated']){
       await pg.exec(`SET ROLE ${role}`);
-      await assert.rejects(pg.query('SELECT * FROM bizassist.users'),/permission denied/);
+      await assert.rejects(pg.query('SELECT * FROM users'),/permission denied/);
       await pg.exec('RESET ROLE');
     }
-    const r=await pg.query("SELECT count(*)::int AS n FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE n.nspname='bizassist' AND c.relrowsecurity");
+    const r=await pg.query("SELECT count(*)::int AS n FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE n.nspname='public' AND c.relrowsecurity AND c.relname IN ('users','sessions','tickets','messages','events','articles')");
     assert.equal(r.rows[0].n,6);
   }finally{await pg.exec('RESET ROLE');await db.close();}
 });

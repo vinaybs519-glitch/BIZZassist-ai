@@ -14,7 +14,7 @@ export function postgresConfig(env=process.env){
   if(!['postgres:','postgresql:'].includes(url.protocol)||!url.hostname||!url.username||!url.password)throw Error('SUPABASE_DB_URL must include a PostgreSQL host, username and password.');
   // URL SSL flags override pg's SSL object; enforce verification in one place.
   for(const key of ['ssl','sslmode','sslcert','sslkey','sslrootcert'])url.searchParams.delete(key);
-  return {connectionString:url.toString(),ssl:{rejectUnauthorized:true,...(env.SUPABASE_SSL_CA_PATH?{ca:readFileSync(resolve(env.SUPABASE_SSL_CA_PATH),'utf8')}:{})},max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000,statement_timeout:15000,application_name:'bizassist',options:'-c search_path=bizassist'};
+  return {connectionString:url.toString(),ssl:{rejectUnauthorized:true,...(env.SUPABASE_SSL_CA_PATH?{ca:readFileSync(resolve(env.SUPABASE_SSL_CA_PATH),'utf8')}:{})},max:5,connectionTimeoutMillis:10000,idleTimeoutMillis:30000,statement_timeout:15000,application_name:'bizassist',options:'-c search_path=public,bizassist'};
 }
 
 // Only static application SQL reaches this adapter; values remain bound parameters.
@@ -40,7 +40,7 @@ export function postgresAdapter(pool){
       };
     },
     exec:sql=>pool.query(sql),
-    async health(){await pool.query('SELECT 1 FROM bizassist.users LIMIT 1');return true;},
+    async health(){await pool.query('SELECT 1 FROM users LIMIT 1');return true;},
     close:()=>pool.end()
   };
 }

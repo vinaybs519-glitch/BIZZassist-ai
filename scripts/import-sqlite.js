@@ -9,16 +9,17 @@ const tables={users:['id','name','email','password','role'],articles:['id','titl
 export async function importSQLite(source,client){
   await client.query('BEGIN');
   try{
-    await client.query('LOCK TABLE bizassist.users,bizassist.articles,bizassist.tickets,bizassist.messages,bizassist.events,bizassist.sessions IN ACCESS EXCLUSIVE MODE');
+    await client.query('SET search_path = public, bizassist');
+    await client.query('LOCK TABLE users,articles,tickets,messages,events,sessions IN ACCESS EXCLUSIVE MODE');
     for(const table of [...Object.keys(tables),'sessions']){
-      if(Number((await client.query(`SELECT count(*) AS count FROM bizassist.${table}`)).rows[0].count)!==0)throw Error('Import requires empty target tables. Use a new Supabase database/schema; existing data will not be overwritten.');
+      if(Number((await client.query(`SELECT count(*) AS count FROM ${table}`)).rows[0].count)!==0)throw Error('Import requires empty target tables. Use a new Supabase database/schema; existing data will not be overwritten.');
     }
     let total=0;
     for(const [table,columns] of Object.entries(tables)){
       for(const row of source.prepare(`SELECT ${columns.join(',')} FROM ${table} ORDER BY id`).all()){
-        await client.query(`INSERT INTO bizassist.${table} (${columns.join(',')}) VALUES (${columns.map((_,i)=>'$'+(i+1)).join(',')})`,columns.map(c=>row[c]));total++;
+        await client.query(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map((_,i)=>'$'+(i+1)).join(',')})`,columns.map(c=>row[c]));total++;
       }
-      await client.query(`SELECT setval(pg_get_serial_sequence('bizassist.${table}','id'),COALESCE((SELECT MAX(id) FROM bizassist.${table}),1),(SELECT count(*)>0 FROM bizassist.${table}))`);
+      await client.query(`SELECT setval(pg_get_serial_sequence('${table}','id'),COALESCE((SELECT MAX(id) FROM ${table}),1),(SELECT count(*)>0 FROM ${table}))`);
     }
     await client.query('COMMIT');return total;
   }catch(error){await client.query('ROLLBACK');throw error;}
